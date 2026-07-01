@@ -6,6 +6,8 @@
     <title>قنواتي | VƗᕈ GȺMER 6</title>
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;600;700;900&family=Tajawal:wght@400;700;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Supabase CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         * {
             margin: 0;
@@ -674,6 +676,15 @@
     </div>
 
     <script>
+        // ===== SUPABASE CONFIG =====
+        // ⚠️ غيّر القيم دي بالقيم بتاعتك من Supabase Dashboard
+        const SUPABASE_URL = 'https://dnkceuwvtesopgytvbar.supabase.co';
+        const SUPABASE_KEY = 'sb_publishable_7f-fYJE0YedYWli36z5u0g_GO92f-tC';
+
+        // Initialize Supabase client
+        const { createClient } = supabase;
+        const supabaseClient = createClient(SUPABASE_URL, SUPABASE_KEY);
+
         // ===== CANVAS ANIMATED BACKGROUND =====
         const canvas = document.getElementById('canvas-bg');
         const ctx = canvas.getContext('2d');
@@ -777,34 +788,131 @@
             setTimeout(() => ripple.remove(), 600);
         });
 
-        // ===== VISITS & LIKES COUNTER (localStorage) =====
-        const LS_VISITS_KEY = 'vipgamer6_visits';
-        const LS_LIKES_KEY = 'vipgamer6_likes';
-        const LS_USER_LIKED_KEY = 'vipgamer6_user_liked';
+        // ===== SUPABASE STATS =====
+        let currentVisits = 0;
+        let currentLikes = 0;
+        let userLiked = false;
 
-        // Get stored values (or default to 0)
-        let totalVisits = parseInt(localStorage.getItem(LS_VISITS_KEY)) || 0;
-        let totalLikes = parseInt(localStorage.getItem(LS_LIKES_KEY)) || 0;
-        let userLiked = localStorage.getItem(LS_USER_LIKED_KEY) === 'true';
+        // Check if user already liked (using localStorage to prevent multiple likes)
+        const LS_USER_LIKED_KEY = 'vipg6_user_liked';
+        userLiked = localStorage.getItem(LS_USER_LIKED_KEY) === 'true';
 
-        // Increment visits
-        totalVisits++;
-        localStorage.setItem(LS_VISITS_KEY, totalVisits);
+        async function fetchStats() {
+            try {
+                const { data, error } = await supabaseClient
+                    .from('stats')
+                    .select('*')
+                    .eq('id', 1)
+                    .single();
 
-        // Update UI
-        function updateUI() {
-            const visitsEl = document.getElementById('visits');
-            const likesEl = document.getElementById('likes');
-            const likeCountEl = document.getElementById('likeCount');
+                if (error) throw error;
+
+                currentVisits = data.visits;
+                currentLikes = data.likes;
+
+                // Animate counters
+                animateCounter('visits', currentVisits);
+                animateCounter('likes', currentLikes);
+                document.getElementById('likeCount').textContent = formatNumber(currentLikes);
+
+                // Update like button state
+                updateLikeButton();
+
+            } catch (error) {
+                console.error('Error fetching stats:', error);
+                document.getElementById('visits').textContent = 'غير متاح';
+                document.getElementById('likes').textContent = 'غير متاح';
+                document.getElementById('visits').classList.add('stat-error');
+                document.getElementById('likes').classList.add('stat-error');
+            }
+        }
+
+        async function incrementVisits() {
+            try {
+                // Get current visits
+                const { data, error: fetchError } = await supabaseClient
+                    .from('stats')
+                    .select('visits')
+                    .eq('id', 1)
+                    .single();
+
+                if (fetchError) throw fetchError;
+
+                const newVisits = (data?.visits || 0) + 1;
+
+                // Update visits
+                const { error: updateError } = await supabaseClient
+                    .from('stats')
+                    .update({ visits: newVisits })
+                    .eq('id', 1);
+
+                if (updateError) throw updateError;
+
+                currentVisits = newVisits;
+                animateCounter('visits', currentVisits);
+
+            } catch (error) {
+                console.error('Error incrementing visits:', error);
+            }
+        }
+
+        async function toggleLike() {
             const likeBtn = document.getElementById('likeBtn');
             const likeIcon = document.getElementById('likeIcon');
+            const likesEl = document.getElementById('likes');
+            const likeCountEl = document.getElementById('likeCount');
 
-            visitsEl.classList.remove('loading');
-            likesEl.classList.remove('loading');
+            try {
+                if (userLiked) {
+                    // Unlike: decrement
+                    const newLikes = Math.max(0, currentLikes - 1);
 
-            visitsEl.textContent = formatNumber(totalVisits);
-            likesEl.textContent = formatNumber(totalLikes);
-            likeCountEl.textContent = formatNumber(totalLikes);
+                    const { error } = await supabaseClient
+                        .from('stats')
+                        .update({ likes: newLikes })
+                        .eq('id', 1);
+
+                    if (error) throw error;
+
+                    currentLikes = newLikes;
+                    userLiked = false;
+                    localStorage.setItem(LS_USER_LIKED_KEY, 'false');
+
+                    likeBtn.classList.remove('liked');
+                    likeIcon.classList.remove('fas');
+                    likeIcon.classList.add('far');
+
+                } else {
+                    // Like: increment
+                    const newLikes = currentLikes + 1;
+
+                    const { error } = await supabaseClient
+                        .from('stats')
+                        .update({ likes: newLikes })
+                        .eq('id', 1);
+
+                    if (error) throw error;
+
+                    currentLikes = newLikes;
+                    userLiked = true;
+                    localStorage.setItem(LS_USER_LIKED_KEY, 'true');
+
+                    likeBtn.classList.add('liked');
+                    likeIcon.classList.remove('far');
+                    likeIcon.classList.add('fas');
+                }
+
+                likesEl.textContent = formatNumber(currentLikes);
+                likeCountEl.textContent = formatNumber(currentLikes);
+
+            } catch (error) {
+                console.error('Error toggling like:', error);
+            }
+        }
+
+        function updateLikeButton() {
+            const likeBtn = document.getElementById('likeBtn');
+            const likeIcon = document.getElementById('likeIcon');
 
             if (userLiked) {
                 likeBtn.classList.add('liked');
@@ -817,7 +925,6 @@
             }
         }
 
-        // Animate counter on load
         function animateCounter(elementId, target) {
             const element = document.getElementById(elementId);
             element.classList.remove('loading');
@@ -852,44 +959,6 @@
                 return (num / 1000).toFixed(1) + 'K+';
             }
             return num.toString();
-        }
-
-        // Animate both counters on page load
-        setTimeout(() => {
-            animateCounter('visits', totalVisits);
-            animateCounter('likes', totalLikes);
-        }, 500);
-
-        // ===== LIKE TOGGLE =====
-        function toggleLike() {
-            const likeBtn = document.getElementById('likeBtn');
-            const likeIcon = document.getElementById('likeIcon');
-            const likesEl = document.getElementById('likes');
-            const likeCountEl = document.getElementById('likeCount');
-
-            if (userLiked) {
-                // Unlike
-                totalLikes = Math.max(0, totalLikes - 1);
-                userLiked = false;
-                likeBtn.classList.remove('liked');
-                likeIcon.classList.remove('fas');
-                likeIcon.classList.add('far');
-            } else {
-                // Like
-                totalLikes++;
-                userLiked = true;
-                likeBtn.classList.add('liked');
-                likeIcon.classList.remove('far');
-                likeIcon.classList.add('fas');
-            }
-
-            // Save to localStorage
-            localStorage.setItem(LS_LIKES_KEY, totalLikes);
-            localStorage.setItem(LS_USER_LIKED_KEY, userLiked);
-
-            // Update display
-            likesEl.textContent = formatNumber(totalLikes);
-            likeCountEl.textContent = formatNumber(totalLikes);
         }
 
         // ===== LANGUAGE TOGGLE =====
@@ -938,11 +1007,9 @@
             currentLang = currentLang === 'ar' ? 'en' : 'ar';
             const t = translations[currentLang];
 
-            // Update HTML lang and dir
             document.documentElement.lang = currentLang;
             document.documentElement.dir = currentLang === 'ar' ? 'rtl' : 'ltr';
 
-            // Update all text elements
             document.getElementById('langText').textContent = t.langText;
             document.getElementById('visitsLabel').textContent = t.visitsLabel;
             document.getElementById('likesLabel').textContent = t.likesLabel;
@@ -959,7 +1026,6 @@
             document.getElementById('rbDesc').textContent = t.rbDesc;
             document.getElementById('footerText').innerHTML = t.footerText;
 
-            // Update typing texts
             typingTexts = t.typingTexts;
             textIndex = 0;
             charIndex = 0;
@@ -991,7 +1057,16 @@
             }
             setTimeout(typeEffect, typeSpeed);
         }
-        typeEffect();
+
+        // ===== INIT =====
+        // Load stats and increment visit
+        async function init() {
+            await fetchStats();
+            await incrementVisits();
+            typeEffect();
+        }
+
+        init();
     </script>
 </body>
-</html>         CREATED BY VƗᕈ GȺMER                  VƗᕈ GȺMER تم إنشاؤه بواسطة
+</html>              CREATED BY VƗᕈ GȺMER                  VƗᕈ GȺMER تم إنشاؤه بواسطة
